@@ -19,6 +19,10 @@ struct Args {
     // Transaction hash to verify
     #[arg(short, long)]
     tx_hash: String,
+
+    // Merkle proof as comma-separated hex strings
+    #[arg(short, long)]
+    proof: String,
 }
 
 struct MerkleVerifier {
@@ -44,6 +48,14 @@ impl MerkleVerifier {
         // In a real implementation, we would RLP encode the receipt here
         // For now, we'll just use a placeholder hash
         Ok(Keccak256::digest(&receipt.to_string()).to_vec())
+    }
+
+    async fn verify_receipt_proof(&self, block_number: U64, tx_hash: H256, proof: Vec<H256>) -> Result<bool> {
+        let receipts_root = self.get_block_receipts_root(block_number).await?;
+        let receipt_data = self.get_receipt(tx_hash).await?;
+        let receipt_hash = H256::from_slice(&Keccak256::digest(&receipt_data));
+        
+        Ok(self.verify_merkle_proof(receipt_hash, proof, receipts_root))
     }
 
     fn verify_merkle_proof(&self, leaf: H256, proof: Vec<H256>, root: H256) -> bool {
@@ -80,12 +92,22 @@ async fn main() -> Result<()> {
     let block_number = U64::from(args.block);
     let tx_hash = H256::from_str(&args.tx_hash)?;
     
-    let receipts_root = verifier.get_block_receipts_root(block_number).await?;
-    let receipt_data = verifier.get_receipt(tx_hash).await?;
+    // Parse proof from comma-separated hex strings
+    let proof: Vec<H256> = args.proof
+        .split(',')
+        .map(|s| H256::from_str(s.trim()).unwrap())
+        .collect();
+
+    let is_valid = verifier.verify_receipt_proof(block_number, tx_hash, proof).await?;
     
     println!("Connected to Ethereum node!");
-    println!("Block {} receipts root: {:?}", args.block, receipts_root);
-    println!("Transaction receipt hash: {:?}", H256::from_slice(&receipt_data));
+    if is_valid {
+        println!("✅ Merkle proof verification successful!");
+        println!("Transaction receipt is included in block {}", args.block);
+    } else {
+        println!("❌ Merkle proof verification failed!");
+        println!("Transaction receipt is NOT included in block {}", args.block);
+    }
     
     Ok(())
 } 
