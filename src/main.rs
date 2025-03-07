@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use ethers::providers::{Http, Provider};
-use ethers::types::H256;
+use ethers::types::{H256, U64};
 use sha3::{Digest, Keccak256};
 use std::sync::Arc;
 
@@ -26,6 +26,11 @@ impl MerkleVerifier {
         Ok(Self {
             provider: Arc::new(provider),
         })
+    }
+
+    async fn get_block_receipts_root(&self, block_number: U64) -> Result<H256> {
+        let block = self.provider.get_block(block_number).await?.unwrap();
+        Ok(block.receipts_root)
     }
 
     fn verify_merkle_proof(&self, leaf: H256, proof: Vec<H256>, root: H256) -> bool {
@@ -59,8 +64,11 @@ async fn main() -> Result<()> {
         .expect("RPC URL must be provided via --rpc-url or ETH_RPC_URL env var");
 
     let verifier = MerkleVerifier::new(&rpc_url)?;
+    let block_number = U64::from(args.block);
+    
+    let receipts_root = verifier.get_block_receipts_root(block_number).await?;
     println!("Connected to Ethereum node!");
-    println!("Will verify block: {}", args.block);
+    println!("Block {} receipts root: {:?}", args.block, receipts_root);
     
     Ok(())
 } 
